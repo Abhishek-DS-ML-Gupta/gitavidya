@@ -191,6 +191,17 @@ export default function VoiceAgentPage() {
     }
   };
 
+  const speakBrowser = (text: string) => {
+    if (!window.speechSynthesis) return false;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "hi-IN";
+    utterance.rate = 0.9;
+    utterance.pitch = 1;
+    window.speechSynthesis.speak(utterance);
+    return true;
+  };
+
   const handleSpeak = async (text: string) => {
     if (!text.trim()) return;
     setLoading(true);
@@ -212,10 +223,12 @@ export default function VoiceAgentPage() {
         setStatus("Speech ready");
         setTimeout(() => audioRef.current?.play(), 500);
       } else {
-        setStatus("No audio generated (TTS may need sandbox setup)");
+        setStatus("VideoDB TTS unavailable — using browser speech");
+        speakBrowser(text);
       }
     } catch (err: any) {
-      setStatus(`Failed: ${err.message}`);
+      setStatus("VideoDB TTS error — using browser speech");
+      speakBrowser(text);
     } finally {
       setLoading(false);
     }
@@ -298,7 +311,7 @@ export default function VoiceAgentPage() {
                     >
                       <option value="">Default (non-cloned)</option>
                       {voices.map((v) => (
-                        <option key={v.id} value={v.id}>
+                        <option key={v.id} value={v.name}>
                           {v.name} {v.status ? `(${v.status})` : ""}
                         </option>
                       ))}
@@ -395,7 +408,7 @@ export default function VoiceAgentPage() {
                 <CardContent className="p-3 flex items-center gap-2">
                   <Mic className="h-4 w-4 text-primary shrink-0" />
                   <p className="text-xs">
-                    Active voice: <span className="font-semibold">{voices.find(v => v.id === selectedVoice)?.name || selectedVoice}</span>
+                    Active voice: <span className="font-semibold">{selectedVoice}</span>
                   </p>
                 </CardContent>
               </Card>
@@ -427,7 +440,7 @@ export default function VoiceAgentPage() {
                   ) : (
                     <Volume2 className="h-4 w-4 mr-1" />
                   )}
-                  {selectedVoice ? `Speak with ${voices.find(v => v.id === selectedVoice)?.name || "cloned voice"}` : "Speak"}
+                  {selectedVoice ? `Speak with ${selectedVoice}` : "Speak"}
                 </Button>
                 {audioUrl && (
                   <audio ref={audioRef} controls className="w-full mt-2">
