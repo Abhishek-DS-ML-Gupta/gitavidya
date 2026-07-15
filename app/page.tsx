@@ -4,10 +4,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { motion } from "framer-motion";
-import { BookOpen, Search, MessageCircle, Sparkles, BookMarked, GraduationCap, ArrowRight, Youtube, Mic } from "lucide-react";
+import { BookOpen, Search, MessageCircle, Sparkles, BookMarked, GraduationCap, ArrowRight, Youtube, Mic, Heart } from "lucide-react";
 import Link from "next/link";
 
 const features = [
+  {
+    icon: Heart,
+    title: "हरे कृष्ण जप विधि",
+    desc: "पहले यह सीखें — Bhagavad Gita के अध्ययन से पूर्व हरे कृष्ण महामंत्र जप की संपूर्ण विधि।",
+    href: "/chanting",
+  },
   {
     icon: MessageCircle,
     title: "Ask AI",
@@ -68,6 +74,9 @@ export default function Home() {
             <span className="text-xl font-bold">Gitavidya</span>
           </div>
           <nav className="hidden items-center gap-6 md:flex">
+            <Link href="/chanting" className="text-sm text-muted-foreground hover:text-foreground">
+              जप विधि
+            </Link>
             <Link href="/chapters" className="text-sm text-muted-foreground hover:text-foreground">
               Chapters
             </Link>
