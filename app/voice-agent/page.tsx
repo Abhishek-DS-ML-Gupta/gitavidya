@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -9,44 +9,63 @@ import {
   Play,
   FileText,
   RefreshCw,
-  Mic,
   Volume2,
   Send,
   Sparkles,
+  Mic,
+  UserCheck,
 } from "lucide-react";
 import Link from "next/link";
+
+interface ClonedVoice {
+  id: string;
+  name: string;
+  status?: string;
+}
 
 export default function VoiceAgentPage() {
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [videos, setVideos] = useState<any[]>([]);
-  const [audios, setAudios] = useState<any[]>([]);
+  const [voices, setVoices] = useState<ClonedVoice[]>([]);
   const [transcript, setTranscript] = useState<string | null>(null);
   const [playerUrl, setPlayerUrl] = useState<string | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [voiceName, setVoiceName] = useState("Default");
+  const [selectedVoice, setSelectedVoice] = useState("");
   const [ttsText, setTtsText] = useState("");
   const [groqQuestion, setGroqQuestion] = useState("");
   const [groqAnswer, setGroqAnswer] = useState("");
   const [groqLoading, setGroqLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
 
-  const loadVideos = useCallback(async () => {
+  const loadData = useCallback(async () => {
     try {
-      const res = await fetch("/api/videodb", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "list" }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setVideos(data.videos || []);
-        setAudios(data.audios || []);
+      const [listRes, voicesRes] = await Promise.all([
+        fetch("/api/videodb", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "list" }),
+        }),
+        fetch("/api/videodb", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "list_voices" }),
+        }),
+      ]);
+      const listData = await listRes.json();
+      const voicesData = await voicesRes.json();
+      if (listData.success) {
+        setVideos(listData.videos || []);
+      }
+      if (voicesData.success) {
+        setVoices(voicesData.voices || []);
       }
     } catch {}
   }, []);
+
+  useEffect(() => { loadData(); }, [loadData]);
 
   const handleUpload = async () => {
     if (!youtubeUrl.trim()) return;
@@ -62,11 +81,38 @@ export default function VoiceAgentPage() {
       });
       const data = await res.json();
       if (data.success) {
-        setStatus("Uploaded! Processing...");
-        await loadVideos();
+        setStatus("Uploaded! Now clone the voice from it.");
+        await loadData();
         setYoutubeUrl("");
       } else {
         setStatus(`Error: ${data.error}`);
+      }
+    } catch (err: any) {
+      setStatus(`Failed: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCloneVoice = async (videoId: string, name: string) => {
+    setLoading(true);
+    setStatus("Cloning voice...");
+    try {
+      const res = await fetch("/api/videodb", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "clone",
+          videoId,
+          voiceName: name,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStatus("Voice cloned! Refreshing list...");
+        await loadData();
+      } else {
+        setStatus(`Clone error: ${data.error}`);
       }
     } catch (err: any) {
       setStatus(`Failed: ${err.message}`);
@@ -157,7 +203,7 @@ export default function VoiceAgentPage() {
         body: JSON.stringify({
           action: "speak",
           text,
-          voiceName,
+          voiceName: selectedVoice || undefined,
         }),
       });
       const data = await res.json();
@@ -188,7 +234,6 @@ export default function VoiceAgentPage() {
       const data = await res.json();
       const answer = data.answer || "No answer received.";
       setGroqAnswer(answer);
-      // Auto-speak the answer with cloned voice
       handleSpeak(answer);
     } catch (err: any) {
       setGroqAnswer(`Error: ${err.message}`);
@@ -211,8 +256,8 @@ export default function VoiceAgentPage() {
       <main className="container max-w-4xl mx-auto py-8 px-4">
         <h1 className="text-3xl font-bold mb-2">Voice Agent</h1>
         <p className="text-muted-foreground mb-8">
-          Clone a voice from a YouTube reference video, then ask AI questions and hear
-          answers spoken in that voice.
+          Clone voices from YouTube video references, then ask AI questions and hear
+          answers spoken in your chosen cloned voice.
         </p>
 
         <div className="grid gap-8 lg:grid-cols-2">
@@ -222,7 +267,7 @@ export default function VoiceAgentPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-lg">
                   <Youtube className="h-5 w-5 text-red-500" />
-                  1. Add Voice Reference
+                  1. Add & Clone Voice
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -240,29 +285,26 @@ export default function VoiceAgentPage() {
                   </Button>
                 </div>
 
-                {/* Voice name selector */}
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">
-                    Voice Name (for TTS)
-                  </label>
-                  <select
-                    value={voiceName}
-                    onChange={(e) => setVoiceName(e.target.value)}
-                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                  >
-                    <option value="Default">Default</option>
-                    {audios.map((a: any) => (
-                      <option key={a.id} value={a.name || a.id}>
-                        {a.name || a.id}
-                      </option>
-                    ))}
-                    {videos.map((v: any) => (
-                      <option key={v.id} value={v.id}>
-                        {v.name || v.id}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {/* Cloned voices selector */}
+                {voices.length > 0 && (
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block font-medium">
+                      🎤 Select Cloned Voice for TTS
+                    </label>
+                    <select
+                      value={selectedVoice}
+                      onChange={(e) => setSelectedVoice(e.target.value)}
+                      className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    >
+                      <option value="">Default (non-cloned)</option>
+                      {voices.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.name} {v.status ? `(${v.status})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 {status && <p className="text-sm text-muted-foreground">{status}</p>}
               </CardContent>
@@ -281,10 +323,13 @@ export default function VoiceAgentPage() {
                         </p>
                       </div>
                       <div className="flex gap-1 shrink-0">
-                        <Button size="sm" variant="ghost" onClick={() => handleTranscript(v.id)} disabled={loading}>
+                        <Button size="sm" variant="ghost" onClick={() => handleCloneVoice(v.id, v.name || `Voice_${v.id.slice(0, 8)}`)} disabled={loading} title="Clone this voice">
+                          <Mic className="h-3.5 w-3.5 text-primary" />
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => handleTranscript(v.id)} disabled={loading} title="Get transcript">
                           <FileText className="h-3.5 w-3.5" />
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => handleStream(v.id)} disabled={loading}>
+                        <Button size="sm" variant="ghost" onClick={() => handleStream(v.id)} disabled={loading} title="Play video">
                           <Play className="h-3.5 w-3.5" />
                         </Button>
                       </div>
@@ -292,10 +337,31 @@ export default function VoiceAgentPage() {
                   </CardContent>
                 </Card>
               ))}
-              <Button variant="outline" size="sm" onClick={loadVideos} className="w-full">
+              <Button variant="outline" size="sm" onClick={loadData} className="w-full">
                 <RefreshCw className="h-4 w-4 mr-1" /> Refresh
               </Button>
             </div>
+
+            {/* Cloned voices list */}
+            {voices.length > 0 && (
+              <Card className="border-primary/40">
+                <CardHeader className="py-3">
+                  <CardTitle className="flex items-center gap-2 text-sm">
+                    <UserCheck className="h-4 w-4 text-primary" /> Cloned Voices ({voices.length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="py-0 pb-3 space-y-1">
+                  {voices.map((v) => (
+                    <div key={v.id} className="flex items-center justify-between text-xs">
+                      <span className="font-medium">{v.name}</span>
+                      <span className="text-muted-foreground">
+                        {v.status === "ready" ? "✅ Ready" : "⏳ Processing"}
+                      </span>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
 
             {/* Transcript */}
             {transcript && (
@@ -323,6 +389,18 @@ export default function VoiceAgentPage() {
 
           {/* Right Column - TTS + Groq */}
           <div className="space-y-6">
+            {/* Voice indicator */}
+            {selectedVoice && (
+              <Card className="border-primary/50 bg-primary/5">
+                <CardContent className="p-3 flex items-center gap-2">
+                  <Mic className="h-4 w-4 text-primary shrink-0" />
+                  <p className="text-xs">
+                    Active voice: <span className="font-semibold">{voices.find(v => v.id === selectedVoice)?.name || selectedVoice}</span>
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
             {/* TTS Direct Input */}
             <Card>
               <CardHeader>
@@ -335,7 +413,7 @@ export default function VoiceAgentPage() {
                 <textarea
                   value={ttsText}
                   onChange={(e) => setTtsText(e.target.value)}
-                  placeholder="Type any text to hear it spoken in the cloned voice..."
+                  placeholder="Type any text to hear it spoken..."
                   rows={3}
                   className="w-full rounded-md border bg-background px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-none"
                 />
@@ -349,7 +427,7 @@ export default function VoiceAgentPage() {
                   ) : (
                     <Volume2 className="h-4 w-4 mr-1" />
                   )}
-                  Speak
+                  {selectedVoice ? `Speak with ${voices.find(v => v.id === selectedVoice)?.name || "cloned voice"}` : "Speak"}
                 </Button>
                 {audioUrl && (
                   <audio ref={audioRef} controls className="w-full mt-2">
@@ -405,7 +483,7 @@ export default function VoiceAgentPage() {
         </div>
 
         <p className="text-xs text-muted-foreground text-center mt-8">
-          AI explanation inspired by timeless wisdom. Voice powered by VideoDB OMNIVOICE.
+          AI explanation inspired by timeless wisdom. Voice cloning powered by VideoDB OMNIVOICE.
         </p>
       </main>
     </div>

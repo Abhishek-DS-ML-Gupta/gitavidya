@@ -2,13 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { connect, playStream } from "videodb";
 
 const COLLECTION_NAME = "bhagavad-gita";
+const VIDEODB_BASE = "https://api.videodb.io";
 
 let connection: any = null;
 let collection: any = null;
 
+function getApiKey() {
+  return process.env.VIDEO_DB_API_KEY || "";
+}
+
 async function getCollection() {
   if (collection) return collection;
-  connection = connect(process.env.VIDEO_DB_API_KEY);
+  connection = connect(getApiKey());
   const collections = await connection.getCollections();
   collection = collections.find((c: any) => c.name === COLLECTION_NAME);
   if (!collection) {
@@ -21,10 +26,21 @@ async function getCollection() {
   return collection;
 }
 
+async function ensureSandbox() {
+  const res = await fetch(`${VIDEODB_BASE}/sandbox`, {
+    method: "POST",
+    headers: { "x-access-token": getApiKey(), "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "OMNIVOICE", tier: "small" }),
+  });
+  const data = await res.json();
+  return data.data;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { action, youtubeUrl, videoId, query, text, voiceName, voiceConfig } = body;
+    const headers = { "x-access-token": getApiKey(), "Content-Type": "application/json" };
 
     switch (action) {
       case "upload": {
@@ -72,19 +88,44 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "text required" }, { status: 400 });
         }
         const coll4 = await getCollection();
-        // Generate voice audio from text using VideoDB TTS
         const audio = await coll4.generateVoice(
           text,
           voiceName || "Default",
           voiceConfig || {}
         );
-        // Get signed URL to play the generated audio
         const signedUrl = audio ? await audio.generateUrl() : null;
         return NextResponse.json({ success: true, audioId: audio?.id, signedUrl });
       }
 
-      case "voice_designs": {
-        // List audios that can be used as voice references
+      case "clone": {
+        if (!videoId) {
+          return NextResponse.json({ error: "videoId required" }, { status: 400 });
+        }
+        // Ensure OMNIVOICE sandbox exists
+        const sandbox = await ensureSandbox();
+        // Create a voice design from the video's audio
+        const designRes = await fetch(`${VIDEODB_BASE}/voice-design`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            video_id: videoId,
+            name: voiceName || `Voice_${videoId.slice(0, 8)}`,
+            model: "OMNIVOICE",
+          }),
+        });
+        const designData = await designRes.json();
+        return NextResponse.json({ success: true, sandbox, voiceDesign: designData.data || designData });
+      }
+
+      case "list_voices": {
+        // Fetch voice designs from VideoDB
+        const res = await fetch(`${VIDEODB_BASE}/voice-design`, { headers });
+        const data = await res.json();
+        const designs = data?.data?.voice_designs || data?.data || [];
+        return NextResponse.json({ success: true, voices: Array.isArray(designs) ? designs : [] });
+      }
+
+      case "list_audios": {
         const coll5 = await getCollection();
         const audios = await coll5.getAudios();
         return NextResponse.json({ success: true, audios });
